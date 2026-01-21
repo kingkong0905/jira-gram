@@ -2,8 +2,7 @@ name: Coding Quality
 
 on:
   pull_request:
-  push:
-    branches: [main]
+    branches: [ main, development ]
 
 jobs:
   pylint:
