@@ -1,0 +1,57 @@
+{
+    "name": "Jira Telegram Bot",
+    "description": "A Telegram bot for managing Jira issues with FastAPI",
+    "repository": "https://github.com/kingkong0905/jira-gram",
+    "keywords": [
+        "telegram",
+        "bot",
+        "jira",
+        "fastapi",
+        "python"
+    ],
+    "env": {
+        "TELEGRAM_BOT_TOKEN": {
+            "description": "Your Telegram Bot Token from @BotFather",
+            "required": true
+        },
+        "WEBHOOK_URL": {
+            "description": "Your Heroku app URL (e.g., https://your-app.herokuapp.com)",
+            "required": true
+        },
+        "WEBHOOK_PATH": {
+            "description": "Webhook path for Telegram updates",
+            "value": "/webhook",
+            "required": false
+        },
+        "JIRA_URL": {
+            "description": "Your Jira instance URL (e.g., https://your-domain.atlassian.net)",
+            "required": true
+        },
+        "JIRA_EMAIL": {
+            "description": "Your Jira account email",
+            "required": true
+        },
+        "JIRA_API_TOKEN": {
+            "description": "Your Jira API token",
+            "required": true
+        },
+        "HOST": {
+            "description": "Server host",
+            "value": "0.0.0.0",
+            "required": false
+        },
+        "PORT": {
+            "description": "Server port (Heroku will set this automatically)",
+            "required": false
+        },
+        "ALLOWED_USERS": {
+            "description": "Comma-separated list of allowed Telegram user IDs (optional)",
+            "required": false
+        }
+    },
+    "buildpacks": [
+        {
+            "url": "heroku/python"
+        }
+    ]
+}
