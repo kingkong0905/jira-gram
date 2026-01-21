@@ -1,0 +1,22 @@
+# FastAPI Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# Telegram Bot
+python-telegram-bot==20.7
+
+# Jira Integration
+jira==3.8.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Date and Time Handling
+python-dateutil==2.8.2
+
+# Logging
+structlog==24.1.0
