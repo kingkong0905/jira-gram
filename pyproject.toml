@@ -3,11 +3,12 @@ name = "jira-gram"
 version = "1.0.0"
 description = "Telegram bot for Jira integration with FastAPI"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.5.3",
+    "pydantic-settings>=2.1.0",
     "python-telegram-bot>=20.7",
     "jira>=3.8.0",
     "python-dotenv>=1.0.0",
@@ -19,21 +20,43 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
     "black>=23.0.0",
     "flake8>=6.0.0",
     "mypy>=1.5.0",
+    "isort>=5.12.0",
 ]
 
+[project.scripts]
+jira-gram = "jira_gram.main:main"
+
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+mypy_path = "src"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+src_paths = ["src", "tests"]
 
 [tool.black]
 line-length = 100
-target-version = ['py38']
+target-version = ['py39']
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

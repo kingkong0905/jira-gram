@@ -1,29 +1,31 @@
 """Telegram bot handlers for Jira integration."""
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from telegram.constants import ParseMode
 import re
-from jira_client import JiraClient
-import config
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
+from telegram.ext import ContextTypes
+
+from jira_gram.config import get_settings
+from jira_gram.jira import JiraClient
+
+from .auth import is_authorized
 
 
-jira_client = JiraClient()
+def get_jira_client() -> JiraClient:
+    """Get a Jira client instance."""
+    settings = get_settings()
+    return JiraClient(
+        url=settings.jira_url,
+        email=settings.jira_email,
+        api_token=settings.jira_api_token,
+    )
 
 
-def is_authorized(user_id: int) -> bool:
-    """Check if user is authorized to use the bot."""
-    if not config.ALLOWED_USER_IDS:
-        return True  # If no restrictions, allow all users
-    return user_id in config.ALLOWED_USER_IDS
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text(
-            "Sorry, you are not authorized to use this bot."
-        )
+        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
 
     welcome_text = """
@@ -43,31 +45,26 @@ Examples:
     await update.message.reply_text(welcome_text)
 
 
-async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /view command to display Jira ticket details."""
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text(
-            "Sorry, you are not authorized to use this bot."
-        )
+        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
 
     if not context.args:
-        await update.message.reply_text(
-            "Please provide an issue key. Usage: /view PROJ-123"
-        )
+        await update.message.reply_text("Please provide an issue key. Usage: /view PROJ-123")
         return
 
     issue_key = context.args[0].upper()
 
     # Validate issue key format
     if not re.match(r"^[A-Z]+-\d+$", issue_key):
-        await update.message.reply_text(
-            "Invalid issue key format. Use format like: PROJ-123"
-        )
+        await update.message.reply_text("Invalid issue key format. Use format like: PROJ-123")
         return
 
     await update.message.reply_text(f"Fetching {issue_key}...")
 
+    jira_client = get_jira_client()
     issue = jira_client.get_issue(issue_key)
 
     if not issue:
@@ -99,28 +96,20 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Add action buttons
     keyboard = [
         [
-            InlineKeyboardButton(
-                "📝 Add Comment", callback_data=f"comment_{issue_key}"
-            ),
-            InlineKeyboardButton(
-                "💬 View Comments", callback_data=f"comments_{issue_key}"
-            ),
+            InlineKeyboardButton("📝 Add Comment", callback_data=f"comment_{issue_key}"),
+            InlineKeyboardButton("💬 View Comments", callback_data=f"comments_{issue_key}"),
         ],
         [InlineKeyboardButton("🔗 Open in Jira", url=issue["url"])],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        message, parse_mode=ParseMode.HTML, reply_markup=reply_markup
-    )
+    await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
 
-async def comment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def comment_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /comment command to add a comment to a Jira ticket."""
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text(
-            "Sorry, you are not authorized to use this bot."
-        )
+        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
 
     if len(context.args) < 2:
@@ -134,9 +123,7 @@ async def comment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Validate issue key format
     if not re.match(r"^[A-Z]+-\d+$", issue_key):
-        await update.message.reply_text(
-            "Invalid issue key format. Use format like: PROJ-123"
-        )
+        await update.message.reply_text("Invalid issue key format. Use format like: PROJ-123")
         return
 
     await update.message.reply_text(f"Adding comment to {issue_key}...")
@@ -145,24 +132,21 @@ async def comment_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.effective_user.first_name or update.effective_user.username
     full_comment = f"Comment from Telegram ({user_name}):\n{comment_text}"
 
+    jira_client = get_jira_client()
     success = jira_client.add_comment(issue_key, full_comment)
 
     if success:
-        await update.message.reply_text(
-            f"✅ Comment added successfully to {issue_key}!"
-        )
+        await update.message.reply_text(f"✅ Comment added successfully to {issue_key}!")
     else:
         await update.message.reply_text(
             f"❌ Failed to add comment to {issue_key}. Please check the issue key."
         )
 
 
-async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /search command to search for Jira issues."""
     if not is_authorized(update.effective_user.id):
-        await update.message.reply_text(
-            "Sorry, you are not authorized to use this bot."
-        )
+        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
         return
 
     if not context.args:
@@ -175,6 +159,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"Searching with JQL: {jql}...")
 
+    jira_client = get_jira_client()
     issues = jira_client.search_issues(jql, max_results=10)
 
     if not issues:
@@ -191,7 +176,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle button callbacks."""
     query = update.callback_query
     await query.answer()
@@ -204,6 +189,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("comments_"):
         issue_key = data.replace("comments_", "")
+        jira_client = get_jira_client()
         comments = jira_client.get_issue_comments(issue_key)
 
         if not comments:
@@ -215,9 +201,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, comment in enumerate(comments[:5], 1):  # Limit to 5 most recent
             message += f"<b>{i}. {comment['author']}</b> ({comment['created'][:10]})\n"
             comment_body = comment["body"][:200]
-            message += (
-                f"{comment_body}{'...' if len(comment['body']) > 200 else ''}\n\n"
-            )
+            message += f"{comment_body}{'...' if len(comment['body']) > 200 else ''}\n\n"
 
         if len(comments) > 5:
             message += f"<i>... and {len(comments) - 5} more comments</i>"
@@ -233,6 +217,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle errors."""
     print(f"Update {update} caused error {context.error}")
