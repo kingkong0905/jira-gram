@@ -282,6 +282,10 @@ class TestButtonCallback:
         call_args = mock_callback_query_update.callback_query.edit_message_text.call_args[0][0]
         assert "Comments for PROJ-123" in call_args
 
+        # Check that reply_markup was provided with reply buttons
+        call_kwargs = mock_callback_query_update.callback_query.edit_message_text.call_args[1]
+        assert "reply_markup" in call_kwargs
+
     @pytest.mark.asyncio
     @patch("jira_gram.bot.handlers.is_authorized")
     async def test_button_callback_add_comment(
@@ -308,3 +312,240 @@ class TestErrorHandler:
 
         # Should not raise exception
         await handlers.error_handler(mock_update, mock_context)
+
+
+class TestReplyToComment:
+    """Test reply to comment functionality."""
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.get_jira_client")
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_button_callback_reply(
+        self,
+        mock_is_authorized,
+        mock_get_client,
+        mock_callback_query_update,
+        mock_context,
+        mock_jira_client,
+    ):
+        """Test button callback for reply to comment."""
+        mock_is_authorized.return_value = True
+        mock_callback_query_update.callback_query.data = "reply_PROJ-123|10000"
+        mock_get_client.return_value = mock_jira_client
+
+        await handlers.button_callback(mock_callback_query_update, mock_context)
+
+        mock_callback_query_update.callback_query.answer.assert_called_once()
+        mock_callback_query_update.callback_query.edit_message_text.assert_called_once()
+
+        call_args = mock_callback_query_update.callback_query.edit_message_text.call_args[0][0]
+        assert "Reply to comment on PROJ-123" in call_args
+        assert "Please type your reply message" in call_args
+
+        # Check that pending reply was stored
+        user_id = mock_callback_query_update.effective_user.id
+        assert user_id in handlers.pending_replies
+        assert handlers.pending_replies[user_id]["issue_key"] == "PROJ-123"
+        assert handlers.pending_replies[user_id]["comment_id"] == "10000"
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.get_jira_client")
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_button_callback_view_back(
+        self,
+        mock_is_authorized,
+        mock_get_client,
+        mock_callback_query_update,
+        mock_context,
+        mock_jira_client,
+        sample_jira_issue,
+    ):
+        """Test button callback for back button (view issue)."""
+        mock_is_authorized.return_value = True
+        mock_callback_query_update.callback_query.data = "view_PROJ-123"
+        mock_jira_client.get_issue.return_value = sample_jira_issue
+        mock_get_client.return_value = mock_jira_client
+
+        await handlers.button_callback(mock_callback_query_update, mock_context)
+
+        mock_callback_query_update.callback_query.answer.assert_called_once()
+        mock_callback_query_update.callback_query.edit_message_text.assert_called_once()
+
+        call_args = mock_callback_query_update.callback_query.edit_message_text.call_args[0][0]
+        assert "PROJ-123" in call_args
+        assert "Test Issue" in call_args
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.get_jira_client")
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_button_callback_comments_with_reply_buttons(
+        self,
+        mock_is_authorized,
+        mock_get_client,
+        mock_callback_query_update,
+        mock_context,
+        mock_jira_client,
+        sample_jira_comments,
+    ):
+        """Test button callback for comments shows reply buttons."""
+        mock_is_authorized.return_value = True
+        mock_callback_query_update.callback_query.data = "comments_PROJ-123"
+        mock_jira_client.get_issue_comments.return_value = sample_jira_comments
+        mock_get_client.return_value = mock_jira_client
+
+        await handlers.button_callback(mock_callback_query_update, mock_context)
+
+        mock_callback_query_update.callback_query.answer.assert_called_once()
+        mock_callback_query_update.callback_query.edit_message_text.assert_called_once()
+
+        # Check that reply_markup was provided
+        call_kwargs = mock_callback_query_update.callback_query.edit_message_text.call_args[1]
+        assert "reply_markup" in call_kwargs
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_handle_reply_message_no_pending(
+        self, mock_is_authorized, mock_update, mock_context
+    ):
+        """Test handle_reply_message when no pending reply."""
+        mock_is_authorized.return_value = True
+        # Clear any pending replies
+        handlers.pending_replies.clear()
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Should not send any message
+        mock_update.message.reply_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.get_jira_client")
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_handle_reply_message_success(
+        self,
+        mock_is_authorized,
+        mock_get_client,
+        mock_update,
+        mock_context,
+        mock_jira_client,
+    ):
+        """Test successful handle_reply_message."""
+        mock_is_authorized.return_value = True
+        mock_jira_client.reply_to_comment.return_value = True
+        mock_get_client.return_value = mock_jira_client
+
+        # Set up pending reply
+        user_id = mock_update.effective_user.id
+        handlers.pending_replies[user_id] = {
+            "issue_key": "PROJ-123",
+            "comment_id": "10000",
+        }
+
+        mock_update.message.text = "This is my reply"
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Check that reply was sent
+        calls = mock_update.message.reply_text.call_args_list
+        assert len(calls) >= 2  # "Adding reply..." + success message
+        assert any("successfully" in str(call).lower() for call in calls)
+
+        # Check that pending reply was cleared
+        assert user_id not in handlers.pending_replies
+
+        # Check that reply_to_comment was called correctly
+        mock_jira_client.reply_to_comment.assert_called_once()
+        call_args = mock_jira_client.reply_to_comment.call_args[0]
+        assert call_args[0] == "PROJ-123"
+        assert call_args[1] == "10000"
+        assert "This is my reply" in call_args[2]
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_handle_reply_message_cancel(self, mock_is_authorized, mock_update, mock_context):
+        """Test handle_reply_message with cancel command."""
+        mock_is_authorized.return_value = True
+
+        # Set up pending reply
+        user_id = mock_update.effective_user.id
+        handlers.pending_replies[user_id] = {
+            "issue_key": "PROJ-123",
+            "comment_id": "10000",
+        }
+
+        mock_update.message.text = "/cancel"
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Check that cancel message was sent
+        mock_update.message.reply_text.assert_called_once_with("❌ Reply cancelled.")
+
+        # Check that pending reply was cleared
+        assert user_id not in handlers.pending_replies
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.get_jira_client")
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_handle_reply_message_failure(
+        self,
+        mock_is_authorized,
+        mock_get_client,
+        mock_update,
+        mock_context,
+        mock_jira_client,
+    ):
+        """Test handle_reply_message when reply fails."""
+        mock_is_authorized.return_value = True
+        mock_jira_client.reply_to_comment.return_value = False
+        mock_get_client.return_value = mock_jira_client
+
+        # Set up pending reply
+        user_id = mock_update.effective_user.id
+        handlers.pending_replies[user_id] = {
+            "issue_key": "PROJ-123",
+            "comment_id": "10000",
+        }
+
+        mock_update.message.text = "This is my reply"
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Check that failure message was sent
+        calls = mock_update.message.reply_text.call_args_list
+        assert any("Failed" in str(call) for call in calls)
+
+        # Check that pending reply was cleared
+        assert user_id not in handlers.pending_replies
+
+    @pytest.mark.asyncio
+    @patch("jira_gram.bot.handlers.is_authorized")
+    async def test_handle_reply_message_unauthorized(
+        self, mock_is_authorized, mock_update, mock_context
+    ):
+        """Test handle_reply_message with unauthorized user."""
+        mock_is_authorized.return_value = False
+
+        # Set up pending reply
+        user_id = mock_update.effective_user.id
+        handlers.pending_replies[user_id] = {
+            "issue_key": "PROJ-123",
+            "comment_id": "10000",
+        }
+
+        mock_update.message.text = "This is my reply"
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Check that unauthorized message was sent
+        mock_update.message.reply_text.assert_called_once_with(
+            "Sorry, you are not authorized to use this bot."
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_reply_message_no_message(self, mock_update, mock_context):
+        """Test handle_reply_message when update has no message."""
+        mock_update.message = None
+
+        await handlers.handle_reply_message(mock_update, mock_context)
+
+        # Should return early without error
+        assert True  # Test passes if no exception raised

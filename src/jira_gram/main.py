@@ -3,12 +3,13 @@
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from jira_gram.bot import (
     button_callback,
     comment_command,
     error_handler,
+    handle_reply_message,
     search_command,
     start_command,
     view_command,
@@ -31,6 +32,8 @@ telegram_app.add_handler(CommandHandler("view", view_command))
 telegram_app.add_handler(CommandHandler("comment", comment_command))
 telegram_app.add_handler(CommandHandler("search", search_command))
 telegram_app.add_handler(CallbackQueryHandler(button_callback))
+# Handle reply messages (must be after command handlers to avoid conflicts)
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_reply_message))
 telegram_app.add_error_handler(error_handler)
 
 

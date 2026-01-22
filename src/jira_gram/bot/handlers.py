@@ -1,6 +1,7 @@
 """Telegram bot handlers for Jira integration."""
 
 import re
+from typing import Dict
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -10,6 +11,9 @@ from jira_gram.config import get_settings
 from jira_gram.jira import JiraClient
 
 from .auth import is_authorized
+
+# Store pending replies: {user_id: {"issue_key": str, "comment_id": str}}
+pending_replies: Dict[int, Dict[str, str]] = {}
 
 
 def get_jira_client() -> JiraClient:
@@ -198,15 +202,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         message = f"<b>💬 Comments for {issue_key}:</b>\n\n"
 
+        # Create keyboard with reply buttons for each comment
+        keyboard = []
+
         for i, comment in enumerate(comments[:5], 1):  # Limit to 5 most recent
             message += f"<b>{i}. {comment['author']}</b> ({comment['created'][:10]})\n"
             comment_body = comment["body"][:200]
             message += f"{comment_body}{'...' if len(comment['body']) > 200 else ''}\n\n"
+            # Add reply button for each comment (using | as delimiter)
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"↩️ Reply to comment {i}",
+                        callback_data=f"reply_{issue_key}|{comment['id']}",
+                    )
+                ]
+            )
 
         if len(comments) > 5:
             message += f"<i>... and {len(comments) - 5} more comments</i>"
 
-        await query.edit_message_text(message, parse_mode=ParseMode.HTML)
+        # Add back button
+        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"view_{issue_key}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
 
     elif data.startswith("comment_"):
         issue_key = data.replace("comment_", "")
@@ -214,6 +234,114 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"To add a comment to {issue_key}, use:\n\n"
             f"`/comment {issue_key} Your comment here`",
             parse_mode=ParseMode.MARKDOWN,
+        )
+
+    elif data.startswith("reply_"):
+        # Format: reply_ISSUE-KEY|COMMENT_ID (using | as delimiter to avoid conflicts)
+        data_parts = data.replace("reply_", "")
+        if "|" in data_parts:
+            parts = data_parts.split("|", 1)
+            if len(parts) == 2:
+                issue_key = parts[0]
+                comment_id = parts[1]
+
+                # Store pending reply
+                user_id = update.effective_user.id
+                pending_replies[user_id] = {"issue_key": issue_key, "comment_id": comment_id}
+
+                await query.edit_message_text(
+                    f"💬 <b>Reply to comment on {issue_key}</b>\n\n"
+                    f"Please type your reply message. I'll add it as a reply to the comment.\n\n"
+                    f"Type /cancel to cancel.",
+                    parse_mode=ParseMode.HTML,
+                )
+
+    elif data.startswith("view_"):
+        # Handle back button - show issue details again
+        issue_key = data.replace("view_", "")
+        jira_client = get_jira_client()
+        issue = jira_client.get_issue(issue_key)
+
+        if not issue:
+            await query.edit_message_text(f"Could not find issue {issue_key}.")
+            return
+
+        message = f"""
+🎫 <b>{issue["key"]}</b>
+
+<b>Summary:</b> {issue["summary"]}
+
+<b>Status:</b> {issue["status"]}
+<b>Priority:</b> {issue["priority"]}
+<b>Assignee:</b> {issue["assignee"]}
+<b>Reporter:</b> {issue["reporter"]}
+
+<b>Description:</b>
+{issue["description"][:500]}{"..." if len(issue["description"]) > 500 else ""}
+
+<b>Created:</b> {issue["created"][:10]}
+<b>Updated:</b> {issue["updated"][:10]}
+
+<a href="{issue["url"]}">View in Jira</a>
+        """
+
+        keyboard = [
+            [
+                InlineKeyboardButton("📝 Add Comment", callback_data=f"comment_{issue_key}"),
+                InlineKeyboardButton("💬 View Comments", callback_data=f"comments_{issue_key}"),
+            ],
+            [InlineKeyboardButton("🔗 Open in Jira", url=issue["url"])],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(message, parse_mode=ParseMode.HTML, reply_markup=reply_markup)
+
+
+async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle reply messages for comments."""
+    if not update.message or not update.message.text:
+        return
+
+    user_id = update.effective_user.id
+
+    if not is_authorized(user_id):
+        await update.message.reply_text("Sorry, you are not authorized to use this bot.")
+        return
+
+    # Check if user has a pending reply
+    if user_id not in pending_replies:
+        return
+
+    reply_text = update.message.text.strip()
+
+    # Handle cancel command
+    if reply_text.lower() in ["/cancel", "cancel"]:
+        del pending_replies[user_id]
+        await update.message.reply_text("❌ Reply cancelled.")
+        return
+
+    # Get pending reply info
+    pending = pending_replies[user_id]
+    issue_key = pending["issue_key"]
+    comment_id = pending["comment_id"]
+
+    # Clear pending reply
+    del pending_replies[user_id]
+
+    await update.message.reply_text(f"Adding reply to comment on {issue_key}...")
+
+    # Format reply with user attribution
+    user_name = update.effective_user.first_name or update.effective_user.username
+    full_reply = f"Reply from Telegram ({user_name}):\n{reply_text}"
+
+    jira_client = get_jira_client()
+    success = jira_client.reply_to_comment(issue_key, comment_id, full_reply)
+
+    if success:
+        await update.message.reply_text(f"✅ Reply added successfully to comment on {issue_key}!")
+    else:
+        await update.message.reply_text(
+            f"❌ Failed to add reply to comment on {issue_key}. Please try again."
         )
 
 

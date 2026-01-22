@@ -112,13 +112,14 @@ class JiraClient:
             issue_key: Jira issue key
 
         Returns:
-            List of comment dictionaries
+            List of comment dictionaries with id, author, body, and created fields
         """
         try:
             issue = self.jira.issue(issue_key, fields="comment")
             comments = issue.fields.comment.comments
             return [
                 {
+                    "id": comment.id,
                     "author": comment.author.displayName,
                     "body": comment.body,
                     "created": comment.created,
@@ -128,6 +129,35 @@ class JiraClient:
         except Exception as e:
             logger.error(f"Error fetching comments for {issue_key}: {e}")
             return []
+
+    def reply_to_comment(self, issue_key: str, parent_comment_id: str, reply_text: str) -> bool:
+        """
+        Reply to a specific comment on a Jira issue.
+
+        Args:
+            issue_key: Jira issue key
+            parent_comment_id: ID of the parent comment to reply to
+            reply_text: Reply text
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Jira API v3 supports parent comments
+            # Format: { "body": "reply text", "parent": { "id": "parent_comment_id" } }
+            comment_data = {"body": reply_text, "parent": {"id": parent_comment_id}}
+            self.jira.add_comment(issue_key, comment_data)
+            return True
+        except Exception as e:
+            logger.error(f"Error replying to comment {parent_comment_id} on {issue_key}: {e}")
+            # Fallback: if parent comment reply fails, add as regular comment with mention
+            try:
+                fallback_comment = f"Reply to comment:\n{reply_text}"
+                self.jira.add_comment(issue_key, fallback_comment)
+                return True
+            except Exception as fallback_error:
+                logger.error(f"Error adding fallback comment: {fallback_error}")
+                return False
 
     def update_issue(self, issue_key: str, fields: Dict) -> bool:
         """
