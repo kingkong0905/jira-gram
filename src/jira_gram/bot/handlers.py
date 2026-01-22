@@ -256,12 +256,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 issue_key = parts[0]
                 comment_id = parts[1]
 
-                # Store pending reply
+                # Fetch the original comment to get author and body
+                jira_client = get_jira_client()
+                comments = jira_client.get_issue_comments(issue_key)
+                original_comment = next((c for c in comments if c["id"] == comment_id), None)
+
+                if not original_comment:
+                    await query.edit_message_text("Comment not found.")
+                    return
+
+                # Store pending reply with original comment details
                 user_id = update.effective_user.id
-                pending_replies[user_id] = {"issue_key": issue_key, "comment_id": comment_id}
+                pending_replies[user_id] = {
+                    "issue_key": issue_key,
+                    "comment_id": comment_id,
+                    "original_author": original_comment["author"],
+                    "original_body": original_comment["body"],
+                }
 
                 await query.edit_message_text(
                     f"💬 <b>Reply to comment on {issue_key}</b>\n\n"
+                    f"Replying to: <b>{original_comment['author']}</b>\n\n"
                     f"Please type your reply message. I'll add it as a reply to the comment.\n\n"
                     f"Type /cancel to cancel.",
                     parse_mode=ParseMode.HTML,
@@ -379,15 +394,16 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
     pending = pending_replies[user_id]
     issue_key = pending["issue_key"]
     comment_id = pending["comment_id"]
+    original_author = pending.get("original_author", "Unknown")
 
     # Clear pending reply
     del pending_replies[user_id]
 
     await update.message.reply_text(f"Adding reply to comment on {issue_key}...")
 
-    # Format reply with user attribution
-    user_name = update.effective_user.first_name or update.effective_user.username
-    full_reply = f"Reply from Telegram ({user_name}):\n{reply_text}"
+    # Format reply with author tag and user's comment
+    # Tag the original comment author and append the reply text
+    full_reply = f"[~{original_author}] {reply_text}"
 
     jira_client = get_jira_client()
     success = jira_client.reply_to_comment(issue_key, comment_id, full_reply)
