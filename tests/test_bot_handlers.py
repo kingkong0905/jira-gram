@@ -460,8 +460,11 @@ class TestReplyToComment:
         assert call_args[0][0] == "PROJ-123"
         assert call_args[0][1] == "10000"
         assert call_args[0][2] == "This is my reply"
-        # mention_text should be provided (either account ID or plain text)
-        assert call_args[0][3] is not None
+        # Check keyword arguments for mention
+        assert "mention_account_id" in call_args.kwargs
+        assert "mention_display_name" in call_args.kwargs
+        assert call_args.kwargs["mention_account_id"] == "account-123"
+        assert call_args.kwargs["mention_display_name"] == "Test User"
 
     @pytest.mark.asyncio
     @patch("jira_gram.bot.handlers.is_authorized")

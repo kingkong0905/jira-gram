@@ -440,29 +440,23 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await update.message.reply_text(f"Adding reply to comment on {issue_key}...")
 
-    # Format mention text (if available) - will be tried by reply_to_comment
-    # The reply_to_comment method will try multiple formats automatically
-    mention_text = None
-    if original_author_account_id:
-        # Use account ID format: [~accountid] (preferred for Jira Cloud)
-        mention_text = f"[~{original_author_account_id}] "
-        logger.debug(f"Using account ID mention: {original_author_account_id}")
-    else:
-        # Fallback: use plain text with author name (no mention format)
-        # Some Jira instances don't support display name mentions
-        mention_text = f"Replying to {original_author}: "
-        logger.debug("Using plain text mention (no account ID available)")
-
+    # Pass account ID and display name for ADF mention format
+    # The reply_to_comment method will try ADF format first, then fallback to plain text
     logger.info(
         f"Sending reply to Jira - Issue: {issue_key}, Comment ID: {comment_id}, "
         f"Reply length: {len(reply_text)}, User: {user_id}, "
-        f"Mention available: {mention_text is not None}"
+        f"Account ID: {original_author_account_id}, Author: {original_author}"
     )
     logger.debug(f"Reply text: {reply_text}")
-    logger.debug(f"Mention text: {mention_text}")
 
     jira_client = get_jira_client()
-    success = jira_client.reply_to_comment(issue_key, comment_id, reply_text, mention_text)
+    success = jira_client.reply_to_comment(
+        issue_key,
+        comment_id,
+        reply_text,
+        mention_account_id=original_author_account_id,
+        mention_display_name=original_author,
+    )
 
     if success:
         logger.info(

@@ -136,51 +136,112 @@ class JiraClient:
         issue_key: str,
         parent_comment_id: str,
         reply_text: str,
-        mention_text: Optional[str] = None,
+        mention_account_id: Optional[str] = None,
+        mention_display_name: Optional[str] = None,
     ) -> bool:
         """
-        Reply to a specific comment on a Jira issue.
+        Reply to a specific comment on a Jira issue using ADF format.
+
+        Note: Jira doesn't have native "reply-to" API support, so we include
+        a link to the original comment in the reply body using ADF format.
 
         Args:
             issue_key: Jira issue key
             parent_comment_id: ID of the parent comment to reply to
             reply_text: Reply text (plain text without mentions)
-            mention_text: Optional mention text to prepend (e.g., "[~accountId] ")
+            mention_account_id: Optional account ID of the user to mention
+            mention_display_name: Optional display name of the user to mention
 
         Returns:
             True if successful, False otherwise
         """
+        # Build comment URL for linking to the original comment
+        comment_url = (
+            f"{self.url}/browse/{issue_key}?focusedCommentId={parent_comment_id}"
+            f"&page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tab"
+            f"#comment-{parent_comment_id}"
+        )
+
         # Strategy: Try multiple formats in order of preference
-        # 1. Parent comment with mention (if provided)
-        # 2. Parent comment without mention
-        # 3. Regular comment with mention (if provided)
-        # 4. Regular comment without mention
+        # 1. ADF format with mention and link to original comment
+        # 2. ADF format with link only (no mention)
+        # 3. Plain text with mention (fallback)
+        # 4. Plain comment (last resort)
 
         attempts: List[tuple[str, Union[Dict, str]]] = []
 
-        # Attempt 1: Parent comment with mention
-        if mention_text:
-            full_text = f"{mention_text}{reply_text}"
-            comment_data = {"body": full_text, "parent": {"id": str(parent_comment_id)}}
-            attempts.append(("parent with mention", comment_data))
+        # Build ADF content for the reply text
+        # For simplicity, put the entire reply text in one text node
+        # If reply contains newlines, we could split into multiple paragraphs
+        reply_content = [{"type": "text", "text": reply_text}]
 
-        # Attempt 2: Parent comment without mention
-        comment_data_plain = {"body": reply_text, "parent": {"id": str(parent_comment_id)}}
-        attempts.append(("parent without mention", comment_data_plain))
+        # Attempt 1: ADF format with mention and link
+        if mention_account_id and mention_display_name:
+            adf_body_with_mention = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "Replying to "},
+                            {
+                                "type": "text",
+                                "text": f"comment #{parent_comment_id}",
+                                "marks": [{"type": "link", "attrs": {"href": comment_url}}],
+                            },
+                            {"type": "text", "text": " and mentioning "},
+                            {
+                                "type": "mention",
+                                "attrs": {
+                                    "id": mention_account_id,
+                                    "text": f"@{mention_display_name}",
+                                },
+                            },
+                            {"type": "text", "text": ". "},
+                        ]
+                        + reply_content,
+                    }
+                ],
+            }
+            attempts.append(("ADF with mention and link", {"body": adf_body_with_mention}))
 
-        # Attempt 3: Regular comment with mention
-        if mention_text:
-            full_text_regular = f"{mention_text}{reply_text}"
-            attempts.append(("regular with mention", full_text_regular))
+        # Attempt 2: ADF format with link only
+        adf_body_with_link = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Replying to "},
+                        {
+                            "type": "text",
+                            "text": f"comment #{parent_comment_id}",
+                            "marks": [{"type": "link", "attrs": {"href": comment_url}}],
+                        },
+                        {"type": "text", "text": ". "},
+                    ]
+                    + reply_content,
+                }
+            ],
+        }
+        attempts.append(("ADF with link only", {"body": adf_body_with_link}))
 
-        # Attempt 4: Regular comment without mention
-        attempts.append(("regular without mention", reply_text))
+        # Attempt 3: Plain text with mention (fallback)
+        if mention_account_id:
+            # Try the old format as fallback
+            plain_text_with_mention = f"[~accountid:{{{mention_account_id}}}] {reply_text}"
+            attempts.append(("plain text with mention", plain_text_with_mention))
+
+        # Attempt 4: Plain comment (last resort)
+        attempts.append(("plain comment", reply_text))
 
         for attempt_name, comment_body in attempts:
             try:
                 logger.debug(
                     f"Attempting {attempt_name} - Issue: {issue_key}, "
-                    f"Parent ID: {parent_comment_id}, Body length: {len(str(comment_body))}"
+                    f"Parent ID: {parent_comment_id}, Body type: {type(comment_body).__name__}"
                 )
                 if isinstance(comment_body, dict):
                     self.jira.add_comment(issue_key, comment_body)
