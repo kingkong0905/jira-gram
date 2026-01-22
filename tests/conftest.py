@@ -1,10 +1,13 @@
 """Test fixtures and utilities."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from telegram import CallbackQuery, Chat, Message, Update, User
-from telegram.ext import ContextTypes
+
+if TYPE_CHECKING:
+    from telegram import CallbackQuery, Chat, Message, Update, User  # noqa: F401
+    from telegram.ext import ContextTypes  # noqa: F401
 
 
 @pytest.fixture
@@ -59,11 +62,13 @@ def mock_jira_client():
     ]
     client.get_issue_comments.return_value = [
         {
+            "id": "10000",
             "author": "Test User",
             "body": "Test comment",
             "created": "2024-01-01T00:00:00.000+0000",
         }
     ]
+    client.reply_to_comment.return_value = True
     client.update_issue.return_value = True
     return client
 
@@ -71,14 +76,14 @@ def mock_jira_client():
 @pytest.fixture
 def mock_update():
     """Create a mock Telegram Update object."""
-    update = Mock(spec=Update)
-    user = Mock(spec=User)
+    update = Mock()
+    user = Mock()
     user.id = 123456789
     user.first_name = "Test"
     user.username = "testuser"
-    chat = Mock(spec=Chat)
+    chat = Mock()
     chat.id = 123456789
-    message = Mock(spec=Message)
+    message = Mock()
     message.reply_text = AsyncMock()
     message.chat = chat
     update.effective_user = user
@@ -89,12 +94,12 @@ def mock_update():
 @pytest.fixture
 def mock_callback_query_update():
     """Create a mock Telegram Update with CallbackQuery."""
-    update = Mock(spec=Update)
-    user = Mock(spec=User)
+    update = Mock()
+    user = Mock()
     user.id = 123456789
     user.first_name = "Test"
     user.username = "testuser"
-    callback_query = Mock(spec=CallbackQuery)
+    callback_query = Mock()
     callback_query.answer = AsyncMock()
     callback_query.edit_message_text = AsyncMock()
     callback_query.data = "comments_PROJ-123"
@@ -106,7 +111,7 @@ def mock_callback_query_update():
 @pytest.fixture
 def mock_context():
     """Create a mock Telegram context."""
-    context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+    context = Mock()
     context.args = []
     context.error = None
     return context
@@ -134,11 +139,13 @@ def sample_jira_comments():
     """Sample Jira comments data."""
     return [
         {
+            "id": "10000",
             "author": "John Doe",
             "body": "First comment",
             "created": "2024-01-01T00:00:00.000+0000",
         },
         {
+            "id": "10001",
             "author": "Jane Smith",
             "body": "Second comment",
             "created": "2024-01-02T00:00:00.000+0000",

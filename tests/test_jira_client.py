@@ -136,11 +136,13 @@ class TestJiraClient:
     def test_get_issue_comments_success(self, mock_jira_class, jira_client):
         """Test successful get_issue_comments."""
         mock_comment1 = Mock()
+        mock_comment1.id = "10000"
         mock_comment1.author.displayName = "User 1"
         mock_comment1.body = "Comment 1"
         mock_comment1.created = "2024-01-01T00:00:00.000+0000"
 
         mock_comment2 = Mock()
+        mock_comment2.id = "10001"
         mock_comment2.author.displayName = "User 2"
         mock_comment2.body = "Comment 2"
         mock_comment2.created = "2024-01-02T00:00:00.000+0000"
@@ -153,7 +155,9 @@ class TestJiraClient:
         result = jira_client.get_issue_comments("PROJ-123")
 
         assert len(result) == 2
+        assert result[0]["id"] == "10000"
         assert result[0]["author"] == "User 1"
+        assert result[1]["id"] == "10001"
         assert result[1]["body"] == "Comment 2"
 
     @patch("jira_gram.jira.client.JIRA")
@@ -183,5 +187,44 @@ class TestJiraClient:
         jira_client.jira.issue.side_effect = Exception("Update failed")
 
         result = jira_client.update_issue("PROJ-123", {"summary": "Updated"})
+
+        assert result is False
+
+    @patch("jira_gram.jira.client.JIRA")
+    def test_reply_to_comment_success(self, mock_jira_class, jira_client):
+        """Test successful reply_to_comment."""
+        jira_client.jira.add_comment.return_value = True
+
+        result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
+
+        assert result is True
+        jira_client.jira.add_comment.assert_called_once_with(
+            "PROJ-123", {"body": "Reply text", "parent": {"id": "10000"}}
+        )
+
+    @patch("jira_gram.jira.client.JIRA")
+    def test_reply_to_comment_failure_with_fallback(self, mock_jira_class, jira_client):
+        """Test reply_to_comment failure with successful fallback."""
+        # First call fails (parent comment not supported)
+        jira_client.jira.add_comment.side_effect = [
+            Exception("Parent comment not supported"),
+            True,  # Fallback succeeds
+        ]
+
+        result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
+
+        assert result is True
+        assert jira_client.jira.add_comment.call_count == 2
+        # Check fallback was called with regular comment
+        fallback_call = jira_client.jira.add_comment.call_args_list[1]
+        assert fallback_call[0][0] == "PROJ-123"
+        assert "Reply to comment" in fallback_call[0][1]
+
+    @patch("jira_gram.jira.client.JIRA")
+    def test_reply_to_comment_complete_failure(self, mock_jira_class, jira_client):
+        """Test reply_to_comment when both attempts fail."""
+        jira_client.jira.add_comment.side_effect = Exception("All attempts failed")
+
+        result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
 
         assert result is False
