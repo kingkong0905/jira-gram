@@ -440,26 +440,29 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await update.message.reply_text(f"Adding reply to comment on {issue_key}...")
 
-    # Format reply with author tag and user's comment
-    # Try different mention formats based on what's available
+    # Format mention text (if available) - will be tried by reply_to_comment
+    # The reply_to_comment method will try multiple formats automatically
+    mention_text = None
     if original_author_account_id:
         # Use account ID format: [~accountid] (preferred for Jira Cloud)
-        full_reply = f"[~{original_author_account_id}] {reply_text}"
+        mention_text = f"[~{original_author_account_id}] "
         logger.debug(f"Using account ID mention: {original_author_account_id}")
     else:
         # Fallback: use plain text with author name (no mention format)
         # Some Jira instances don't support display name mentions
-        full_reply = f"Replying to {original_author}: {reply_text}"
+        mention_text = f"Replying to {original_author}: "
         logger.debug("Using plain text mention (no account ID available)")
 
     logger.info(
         f"Sending reply to Jira - Issue: {issue_key}, Comment ID: {comment_id}, "
-        f"Reply length: {len(full_reply)}, User: {user_id}"
+        f"Reply length: {len(reply_text)}, User: {user_id}, "
+        f"Mention available: {mention_text is not None}"
     )
-    logger.debug(f"Full reply text: {full_reply}")
+    logger.debug(f"Reply text: {reply_text}")
+    logger.debug(f"Mention text: {mention_text}")
 
     jira_client = get_jira_client()
-    success = jira_client.reply_to_comment(issue_key, comment_id, full_reply)
+    success = jira_client.reply_to_comment(issue_key, comment_id, reply_text, mention_text)
 
     if success:
         logger.info(

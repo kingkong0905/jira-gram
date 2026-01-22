@@ -438,6 +438,8 @@ class TestReplyToComment:
         handlers.pending_replies[user_id] = {
             "issue_key": "PROJ-123",
             "comment_id": "10000",
+            "original_author": "Test User",
+            "original_author_account_id": "account-123",
         }
 
         mock_update.message.text = "This is my reply"
@@ -454,10 +456,12 @@ class TestReplyToComment:
 
         # Check that reply_to_comment was called correctly
         mock_jira_client.reply_to_comment.assert_called_once()
-        call_args = mock_jira_client.reply_to_comment.call_args[0]
-        assert call_args[0] == "PROJ-123"
-        assert call_args[1] == "10000"
-        assert "This is my reply" in call_args[2]
+        call_args = mock_jira_client.reply_to_comment.call_args
+        assert call_args[0][0] == "PROJ-123"
+        assert call_args[0][1] == "10000"
+        assert call_args[0][2] == "This is my reply"
+        # mention_text should be provided (either account ID or plain text)
+        assert call_args[0][3] is not None
 
     @pytest.mark.asyncio
     @patch("jira_gram.bot.handlers.is_authorized")
@@ -503,6 +507,8 @@ class TestReplyToComment:
         handlers.pending_replies[user_id] = {
             "issue_key": "PROJ-123",
             "comment_id": "10000",
+            "original_author": "Test User",
+            "original_author_account_id": "account-123",
         }
 
         mock_update.message.text = "This is my reply"
@@ -529,6 +535,8 @@ class TestReplyToComment:
         handlers.pending_replies[user_id] = {
             "issue_key": "PROJ-123",
             "comment_id": "10000",
+            "original_author": "Test User",
+            "original_author_account_id": "account-123",
         }
 
         mock_update.message.text = "This is my reply"

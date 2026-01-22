@@ -203,6 +203,7 @@ class TestJiraClient:
         result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
 
         assert result is True
+        # Should try parent comment without mention first (no mention_text provided)
         jira_client.jira.add_comment.assert_called_once_with(
             "PROJ-123", {"body": "Reply text", "parent": {"id": "10000"}}
         )
@@ -210,7 +211,7 @@ class TestJiraClient:
     @patch("jira_gram.jira.client.JIRA")
     def test_reply_to_comment_failure_with_fallback(self, mock_jira_class, jira_client):
         """Test reply_to_comment failure with successful fallback."""
-        # First call fails (parent comment not supported)
+        # First call fails (parent comment not supported), second succeeds
         jira_client.jira.add_comment.side_effect = [
             Exception("Parent comment not supported"),
             True,  # Fallback succeeds
@@ -220,16 +221,23 @@ class TestJiraClient:
 
         assert result is True
         assert jira_client.jira.add_comment.call_count == 2
-        # Check fallback was called with regular comment (just the reply text, no prefix)
+        # First attempt: parent comment without mention
+        first_call = jira_client.jira.add_comment.call_args_list[0]
+        assert first_call[0][0] == "PROJ-123"
+        assert first_call[0][1] == {"body": "Reply text", "parent": {"id": "10000"}}
+        # Second attempt: regular comment without mention
         fallback_call = jira_client.jira.add_comment.call_args_list[1]
         assert fallback_call[0][0] == "PROJ-123"
         assert fallback_call[0][1] == "Reply text"
 
     @patch("jira_gram.jira.client.JIRA")
     def test_reply_to_comment_complete_failure(self, mock_jira_class, jira_client):
-        """Test reply_to_comment when both attempts fail."""
+        """Test reply_to_comment when all attempts fail."""
+        # All attempts fail
         jira_client.jira.add_comment.side_effect = Exception("All attempts failed")
 
         result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
 
         assert result is False
+        # Should try at least 2 attempts (parent without mention, then regular without mention)
+        assert jira_client.jira.add_comment.call_count >= 2

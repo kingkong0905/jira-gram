@@ -1,7 +1,7 @@
 """Jira client module for interacting with Jira API."""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from jira import JIRA
 
@@ -131,50 +131,77 @@ class JiraClient:
             logger.error(f"Error fetching comments for {issue_key}: {e}")
             return []
 
-    def reply_to_comment(self, issue_key: str, parent_comment_id: str, reply_text: str) -> bool:
+    def reply_to_comment(
+        self,
+        issue_key: str,
+        parent_comment_id: str,
+        reply_text: str,
+        mention_text: Optional[str] = None,
+    ) -> bool:
         """
         Reply to a specific comment on a Jira issue.
 
         Args:
             issue_key: Jira issue key
             parent_comment_id: ID of the parent comment to reply to
-            reply_text: Reply text
+            reply_text: Reply text (plain text without mentions)
+            mention_text: Optional mention text to prepend (e.g., "[~accountId] ")
 
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Jira API v3 supports parent comments
-            # Format: { "body": "reply text", "parent": { "id": "parent_comment_id" } }
-            # Note: parent_comment_id should be a string
-            comment_data = {"body": reply_text, "parent": {"id": str(parent_comment_id)}}
-            logger.debug(
-                f"Attempting to reply to comment - Issue: {issue_key}, "
-                f"Parent ID: {parent_comment_id}, Body length: {len(reply_text)}"
-            )
-            self.jira.add_comment(issue_key, comment_data)
-            logger.info(f"Successfully replied to comment {parent_comment_id} on {issue_key}")
-            return True
-        except Exception as e:
-            logger.error(
-                f"Error replying to comment {parent_comment_id} on {issue_key}: {e}",
-                exc_info=True,
-            )
-            # Fallback: if parent comment reply fails, add as regular comment
+        # Strategy: Try multiple formats in order of preference
+        # 1. Parent comment with mention (if provided)
+        # 2. Parent comment without mention
+        # 3. Regular comment with mention (if provided)
+        # 4. Regular comment without mention
+
+        attempts: List[tuple[str, Union[Dict, str]]] = []
+
+        # Attempt 1: Parent comment with mention
+        if mention_text:
+            full_text = f"{mention_text}{reply_text}"
+            comment_data = {"body": full_text, "parent": {"id": str(parent_comment_id)}}
+            attempts.append(("parent with mention", comment_data))
+
+        # Attempt 2: Parent comment without mention
+        comment_data_plain = {"body": reply_text, "parent": {"id": str(parent_comment_id)}}
+        attempts.append(("parent without mention", comment_data_plain))
+
+        # Attempt 3: Regular comment with mention
+        if mention_text:
+            full_text_regular = f"{mention_text}{reply_text}"
+            attempts.append(("regular with mention", full_text_regular))
+
+        # Attempt 4: Regular comment without mention
+        attempts.append(("regular without mention", reply_text))
+
+        for attempt_name, comment_body in attempts:
             try:
+                logger.debug(
+                    f"Attempting {attempt_name} - Issue: {issue_key}, "
+                    f"Parent ID: {parent_comment_id}, Body length: {len(str(comment_body))}"
+                )
+                if isinstance(comment_body, dict):
+                    self.jira.add_comment(issue_key, comment_body)
+                else:
+                    self.jira.add_comment(issue_key, comment_body)
                 logger.info(
-                    f"Attempting fallback: adding regular comment to {issue_key} "
-                    f"instead of parent reply"
+                    f"Successfully added comment using {attempt_name} - "
+                    f"Issue: {issue_key}, Comment ID: {parent_comment_id}"
                 )
-                self.jira.add_comment(issue_key, reply_text)
-                logger.info(f"Fallback comment added successfully to {issue_key}")
                 return True
-            except Exception as fallback_error:
-                logger.error(
-                    f"Error adding fallback comment to {issue_key}: {fallback_error}",
-                    exc_info=True,
-                )
-                return False
+            except Exception as e:
+                logger.debug(f"Failed {attempt_name} - Issue: {issue_key}, Error: {str(e)[:200]}")
+                continue
+
+        # All attempts failed
+        logger.error(
+            f"All comment attempts failed - Issue: {issue_key}, "
+            f"Parent ID: {parent_comment_id}, Reply length: {len(reply_text)}",
+            exc_info=True,
+        )
+        return False
 
     def update_issue(self, issue_key: str, fields: Dict) -> bool:
         """
