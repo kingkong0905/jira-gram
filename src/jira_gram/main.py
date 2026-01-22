@@ -1,8 +1,12 @@
 """FastAPI application for Telegram Jira Bot."""
 
+import asyncio
+import logging
+
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from telegram import Update
+from telegram.error import RetryAfter
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from jira_gram.bot import (
@@ -15,6 +19,8 @@ from jira_gram.bot import (
     view_command,
 )
 from jira_gram.config import get_settings, validate_config
+
+logger = logging.getLogger(__name__)
 
 # Validate configuration
 validate_config()
@@ -46,9 +52,31 @@ async def on_startup():
     # Set webhook if WEBHOOK_URL is configured
     if settings.webhook_url:
         webhook_url = f"{settings.webhook_url}{settings.webhook_path}"
-        await telegram_app.bot.set_webhook(url=webhook_url)
-        print(f"Webhook set to: {webhook_url}")
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                await telegram_app.bot.set_webhook(url=webhook_url)
+                logger.info(f"Webhook set to: {webhook_url}")
+                print(f"Webhook set to: {webhook_url}")
+                break
+            except RetryAfter as e:
+                retry_count += 1
+                wait_time = e.retry_after
+                logger.warning(
+                    f"Telegram rate limit hit. Retrying in {wait_time} seconds "
+                    f"(attempt {retry_count}/{max_retries})"
+                )
+                print(f"Telegram rate limit hit. Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+            except Exception as e:
+                logger.error(f"Failed to set webhook after {retry_count} retries: {e}")
+                print(f"Warning: Failed to set webhook: {e}")
+                print("Bot will continue running but may not receive updates via webhook.")
+                break
     else:
+        logger.warning("WEBHOOK_URL not configured. Bot will not receive updates.")
         print("Warning: WEBHOOK_URL not configured. Bot will not receive updates.")
         print("Either set WEBHOOK_URL in .env or use polling mode for local development.")
 
