@@ -199,21 +199,32 @@ class TestJiraClient:
     def test_reply_to_comment_success(self, mock_jira_class, jira_client):
         """Test successful reply_to_comment."""
         jira_client.jira.add_comment.return_value = True
+        jira_client.url = "https://test.atlassian.net"
 
         result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
 
         assert result is True
-        # Should try parent comment without mention first (no mention_text provided)
-        jira_client.jira.add_comment.assert_called_once_with(
-            "PROJ-123", {"body": "Reply text", "parent": {"id": "10000"}}
-        )
+        # Should try ADF format with link first (no mention provided)
+        jira_client.jira.add_comment.assert_called_once()
+        call_args = jira_client.jira.add_comment.call_args
+        assert call_args[0][0] == "PROJ-123"
+        # Should be ADF format with link to original comment
+        assert isinstance(call_args[0][1], dict)
+        assert "body" in call_args[0][1]
+        body = call_args[0][1]["body"]
+        assert body["type"] == "doc"
+        # Check that the ADF content includes the reply text
+        body_str = str(body)
+        assert "comment #10000" in body_str
+        assert "Reply text" in body_str
 
     @patch("jira_gram.jira.client.JIRA")
     def test_reply_to_comment_failure_with_fallback(self, mock_jira_class, jira_client):
         """Test reply_to_comment failure with successful fallback."""
-        # First call fails (parent comment not supported), second succeeds
+        jira_client.url = "https://test.atlassian.net"
+        # First call fails (ADF format not supported), second succeeds
         jira_client.jira.add_comment.side_effect = [
-            Exception("Parent comment not supported"),
+            Exception("ADF format not supported"),
             True,  # Fallback succeeds
         ]
 
@@ -221,11 +232,13 @@ class TestJiraClient:
 
         assert result is True
         assert jira_client.jira.add_comment.call_count == 2
-        # First attempt: parent comment without mention
+        # First attempt: ADF format with link (no mention provided)
         first_call = jira_client.jira.add_comment.call_args_list[0]
         assert first_call[0][0] == "PROJ-123"
-        assert first_call[0][1] == {"body": "Reply text", "parent": {"id": "10000"}}
-        # Second attempt: regular comment without mention
+        assert isinstance(first_call[0][1], dict)
+        assert "body" in first_call[0][1]
+        assert first_call[0][1]["body"]["type"] == "doc"
+        # Second attempt: plain text comment (fallback)
         fallback_call = jira_client.jira.add_comment.call_args_list[1]
         assert fallback_call[0][0] == "PROJ-123"
         assert fallback_call[0][1] == "Reply text"
@@ -233,11 +246,12 @@ class TestJiraClient:
     @patch("jira_gram.jira.client.JIRA")
     def test_reply_to_comment_complete_failure(self, mock_jira_class, jira_client):
         """Test reply_to_comment when all attempts fail."""
+        jira_client.url = "https://test.atlassian.net"
         # All attempts fail
         jira_client.jira.add_comment.side_effect = Exception("All attempts failed")
 
         result = jira_client.reply_to_comment("PROJ-123", "10000", "Reply text")
 
         assert result is False
-        # Should try at least 2 attempts (parent without mention, then regular without mention)
+        # Should try at least 2 attempts (ADF with link, then plain text)
         assert jira_client.jira.add_comment.call_count >= 2
