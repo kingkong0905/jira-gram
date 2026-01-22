@@ -1,5 +1,6 @@
 """Telegram bot handlers for Jira integration."""
 
+import logging
 import re
 from typing import Dict
 
@@ -11,6 +12,8 @@ from jira_gram.config import get_settings
 from jira_gram.jira import JiraClient
 
 from .auth import is_authorized
+
+logger = logging.getLogger(__name__)
 
 # Store pending replies: {user_id: {"issue_key": str, "comment_id": str}}
 pending_replies: Dict[int, Dict[str, str]] = {}
@@ -255,6 +258,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if len(parts) == 2:
                 issue_key = parts[0]
                 comment_id = parts[1]
+                user_id = update.effective_user.id
+                username = update.effective_user.username or update.effective_user.first_name
+
+                logger.info(
+                    f"Reply initiated - User: {user_id} ({username}), "
+                    f"Issue: {issue_key}, Comment ID: {comment_id}"
+                )
 
                 # Fetch the original comment to get author and body
                 jira_client = get_jira_client()
@@ -262,17 +272,31 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 original_comment = next((c for c in comments if c["id"] == comment_id), None)
 
                 if not original_comment:
+                    logger.warning(
+                        f"Comment not found - Issue: {issue_key}, Comment ID: {comment_id}, "
+                        f"User: {user_id}"
+                    )
                     await query.edit_message_text("Comment not found.")
                     return
 
+                logger.info(
+                    f"Original comment fetched - Issue: {issue_key}, Comment ID: {comment_id}, "
+                    f"Author: {original_comment['author']}, "
+                    f"Body length: {len(original_comment['body'])}"
+                )
+
                 # Store pending reply with original comment details
-                user_id = update.effective_user.id
                 pending_replies[user_id] = {
                     "issue_key": issue_key,
                     "comment_id": comment_id,
                     "original_author": original_comment["author"],
                     "original_body": original_comment["body"],
                 }
+
+                logger.debug(
+                    f"Pending reply stored - User: {user_id}, Issue: {issue_key}, "
+                    f"Comment ID: {comment_id}"
+                )
 
                 await query.edit_message_text(
                     f"💬 <b>Reply to comment on {issue_key}</b>\n\n"
@@ -383,9 +407,16 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     reply_text = update.message.text.strip()
+    username = update.effective_user.username or update.effective_user.first_name
+
+    logger.info(
+        f"Reply message received - User: {user_id} ({username}), "
+        f"Reply text length: {len(reply_text)}"
+    )
 
     # Handle cancel command
     if reply_text.lower() in ["/cancel", "cancel"]:
+        logger.info(f"Reply cancelled by user - User: {user_id} ({username})")
         del pending_replies[user_id]
         await update.message.reply_text("❌ Reply cancelled.")
         return
@@ -396,6 +427,11 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
     comment_id = pending["comment_id"]
     original_author = pending.get("original_author", "Unknown")
 
+    logger.debug(
+        f"Processing reply - User: {user_id}, Issue: {issue_key}, "
+        f"Comment ID: {comment_id}, Original author: {original_author}"
+    )
+
     # Clear pending reply
     del pending_replies[user_id]
 
@@ -405,12 +441,26 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
     # Tag the original comment author and append the reply text
     full_reply = f"[~{original_author}] {reply_text}"
 
+    logger.info(
+        f"Sending reply to Jira - Issue: {issue_key}, Comment ID: {comment_id}, "
+        f"Reply length: {len(full_reply)}, User: {user_id}"
+    )
+    logger.debug(f"Full reply text: {full_reply}")
+
     jira_client = get_jira_client()
     success = jira_client.reply_to_comment(issue_key, comment_id, full_reply)
 
     if success:
+        logger.info(
+            f"Reply added successfully - Issue: {issue_key}, Comment ID: {comment_id}, "
+            f"User: {user_id} ({username})"
+        )
         await update.message.reply_text(f"✅ Reply added successfully to comment on {issue_key}!")
     else:
+        logger.error(
+            f"Failed to add reply - Issue: {issue_key}, Comment ID: {comment_id}, "
+            f"User: {user_id} ({username}), Reply text: {reply_text[:100]}"
+        )
         await update.message.reply_text(
             f"❌ Failed to add reply to comment on {issue_key}. Please try again."
         )
