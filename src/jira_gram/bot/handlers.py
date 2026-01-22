@@ -290,6 +290,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     "issue_key": issue_key,
                     "comment_id": comment_id,
                     "original_author": original_comment["author"],
+                    "original_author_account_id": original_comment.get("author_account_id"),
                     "original_body": original_comment["body"],
                 }
 
@@ -426,10 +427,12 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
     issue_key = pending["issue_key"]
     comment_id = pending["comment_id"]
     original_author = pending.get("original_author", "Unknown")
+    original_author_account_id = pending.get("original_author_account_id")
 
     logger.debug(
         f"Processing reply - User: {user_id}, Issue: {issue_key}, "
-        f"Comment ID: {comment_id}, Original author: {original_author}"
+        f"Comment ID: {comment_id}, Original author: {original_author}, "
+        f"Account ID: {original_author_account_id}"
     )
 
     # Clear pending reply
@@ -438,8 +441,16 @@ async def handle_reply_message(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(f"Adding reply to comment on {issue_key}...")
 
     # Format reply with author tag and user's comment
-    # Tag the original comment author and append the reply text
-    full_reply = f"[~{original_author}] {reply_text}"
+    # Try different mention formats based on what's available
+    if original_author_account_id:
+        # Use account ID format: [~accountid] (preferred for Jira Cloud)
+        full_reply = f"[~{original_author_account_id}] {reply_text}"
+        logger.debug(f"Using account ID mention: {original_author_account_id}")
+    else:
+        # Fallback: use plain text with author name (no mention format)
+        # Some Jira instances don't support display name mentions
+        full_reply = f"Replying to {original_author}: {reply_text}"
+        logger.debug("Using plain text mention (no account ID available)")
 
     logger.info(
         f"Sending reply to Jira - Issue: {issue_key}, Comment ID: {comment_id}, "

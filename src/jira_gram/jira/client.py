@@ -112,7 +112,7 @@ class JiraClient:
             issue_key: Jira issue key
 
         Returns:
-            List of comment dictionaries with id, author, body, and created fields
+            List of comment dictionaries with id, author, body, created, and accountId fields
         """
         try:
             issue = self.jira.issue(issue_key, fields="comment")
@@ -121,6 +121,7 @@ class JiraClient:
                 {
                     "id": comment.id,
                     "author": comment.author.displayName,
+                    "author_account_id": getattr(comment.author, "accountId", None),
                     "body": comment.body,
                     "created": comment.created,
                 }
@@ -145,18 +146,34 @@ class JiraClient:
         try:
             # Jira API v3 supports parent comments
             # Format: { "body": "reply text", "parent": { "id": "parent_comment_id" } }
-            comment_data = {"body": reply_text, "parent": {"id": parent_comment_id}}
+            # Note: parent_comment_id should be a string
+            comment_data = {"body": reply_text, "parent": {"id": str(parent_comment_id)}}
+            logger.debug(
+                f"Attempting to reply to comment - Issue: {issue_key}, "
+                f"Parent ID: {parent_comment_id}, Body length: {len(reply_text)}"
+            )
             self.jira.add_comment(issue_key, comment_data)
+            logger.info(f"Successfully replied to comment {parent_comment_id} on {issue_key}")
             return True
         except Exception as e:
-            logger.error(f"Error replying to comment {parent_comment_id} on {issue_key}: {e}")
-            # Fallback: if parent comment reply fails, add as regular comment with mention
+            logger.error(
+                f"Error replying to comment {parent_comment_id} on {issue_key}: {e}",
+                exc_info=True,
+            )
+            # Fallback: if parent comment reply fails, add as regular comment
             try:
-                fallback_comment = f"Reply to comment:\n{reply_text}"
-                self.jira.add_comment(issue_key, fallback_comment)
+                logger.info(
+                    f"Attempting fallback: adding regular comment to {issue_key} "
+                    f"instead of parent reply"
+                )
+                self.jira.add_comment(issue_key, reply_text)
+                logger.info(f"Fallback comment added successfully to {issue_key}")
                 return True
             except Exception as fallback_error:
-                logger.error(f"Error adding fallback comment: {fallback_error}")
+                logger.error(
+                    f"Error adding fallback comment to {issue_key}: {fallback_error}",
+                    exc_info=True,
+                )
                 return False
 
     def update_issue(self, issue_key: str, fields: Dict) -> bool:
