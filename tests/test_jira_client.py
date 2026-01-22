@@ -138,12 +138,14 @@ class TestJiraClient:
         mock_comment1 = Mock()
         mock_comment1.id = "10000"
         mock_comment1.author.displayName = "User 1"
+        mock_comment1.author.accountId = "account-123"
         mock_comment1.body = "Comment 1"
         mock_comment1.created = "2024-01-01T00:00:00.000+0000"
 
         mock_comment2 = Mock()
         mock_comment2.id = "10001"
         mock_comment2.author.displayName = "User 2"
+        mock_comment2.author.accountId = "account-456"
         mock_comment2.body = "Comment 2"
         mock_comment2.created = "2024-01-02T00:00:00.000+0000"
 
@@ -157,7 +159,10 @@ class TestJiraClient:
         assert len(result) == 2
         assert result[0]["id"] == "10000"
         assert result[0]["author"] == "User 1"
+        assert result[0]["author_account_id"] == "account-123"
         assert result[1]["id"] == "10001"
+        assert result[1]["author"] == "User 2"
+        assert result[1]["author_account_id"] == "account-456"
         assert result[1]["body"] == "Comment 2"
 
     @patch("jira_gram.jira.client.JIRA")
@@ -215,10 +220,10 @@ class TestJiraClient:
 
         assert result is True
         assert jira_client.jira.add_comment.call_count == 2
-        # Check fallback was called with regular comment
+        # Check fallback was called with regular comment (just the reply text, no prefix)
         fallback_call = jira_client.jira.add_comment.call_args_list[1]
         assert fallback_call[0][0] == "PROJ-123"
-        assert "Reply to comment" in fallback_call[0][1]
+        assert fallback_call[0][1] == "Reply text"
 
     @patch("jira_gram.jira.client.JIRA")
     def test_reply_to_comment_complete_failure(self, mock_jira_class, jira_client):

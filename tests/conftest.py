@@ -64,6 +64,7 @@ def mock_jira_client():
         {
             "id": "10000",
             "author": "Test User",
+            "author_account_id": "account-123",
             "body": "Test comment",
             "created": "2024-01-01T00:00:00.000+0000",
         }
@@ -141,12 +142,14 @@ def sample_jira_comments():
         {
             "id": "10000",
             "author": "John Doe",
+            "author_account_id": "account-123",
             "body": "First comment",
             "created": "2024-01-01T00:00:00.000+0000",
         },
         {
             "id": "10001",
             "author": "Jane Smith",
+            "author_account_id": "account-456",
             "body": "Second comment",
             "created": "2024-01-02T00:00:00.000+0000",
         },
