@@ -200,27 +200,38 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(f"No comments found for {issue_key}.")
             return
 
-        message = f"<b>💬 Comments for {issue_key}:</b>\n\n"
+        # Sort comments by created date (latest first)
+        comments = sorted(comments, key=lambda x: x["created"], reverse=True)
+
+        message = f"<b>💬 Comments for {issue_key} ({len(comments)} total):</b>\n\n"
 
         # Create keyboard with reply buttons for each comment
         keyboard = []
 
-        for i, comment in enumerate(comments[:5], 1):  # Limit to 5 most recent
+        for i, comment in enumerate(comments, 1):
             message += f"<b>{i}. {comment['author']}</b> ({comment['created'][:10]})\n"
             comment_body = comment["body"][:200]
-            message += f"{comment_body}{'...' if len(comment['body']) > 200 else ''}\n\n"
-            # Add reply button for each comment (using | as delimiter)
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        f"↩️ Reply to comment {i}",
-                        callback_data=f"reply_{issue_key}|{comment['id']}",
-                    )
-                ]
-            )
+            is_truncated = len(comment["body"]) > 200
+            message += f"{comment_body}{'...' if is_truncated else ''}\n\n"
 
-        if len(comments) > 5:
-            message += f"<i>... and {len(comments) - 5} more comments</i>"
+            # Create buttons for each comment
+            comment_buttons = [
+                InlineKeyboardButton(
+                    f"↩️ Reply to comment {i}",
+                    callback_data=f"reply_{issue_key}|{comment['id']}",
+                )
+            ]
+
+            # Add "View Full" button if comment is truncated
+            if is_truncated:
+                comment_buttons.append(
+                    InlineKeyboardButton(
+                        "📄 View Full",
+                        callback_data=f"view_comment_{issue_key}|{comment['id']}",
+                    )
+                )
+
+            keyboard.append(comment_buttons)
 
         # Add back button
         keyboard.append([InlineKeyboardButton("🔙 Back", callback_data=f"view_{issue_key}")])
@@ -254,6 +265,50 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     f"Please type your reply message. I'll add it as a reply to the comment.\n\n"
                     f"Type /cancel to cancel.",
                     parse_mode=ParseMode.HTML,
+                )
+
+    elif data.startswith("view_comment_"):
+        # Handle view full comment - show full comment details
+        # Format: view_comment_ISSUE-KEY|COMMENT_ID
+        data_parts = data.replace("view_comment_", "")
+        if "|" in data_parts:
+            parts = data_parts.split("|", 1)
+            if len(parts) == 2:
+                issue_key = parts[0]
+                comment_id = parts[1]
+
+                jira_client = get_jira_client()
+                comments = jira_client.get_issue_comments(issue_key)
+
+                # Find the specific comment
+                comment = next((c for c in comments if c["id"] == comment_id), None)
+
+                if not comment:
+                    await query.edit_message_text("Comment not found.")
+                    return
+
+                # Format full comment details
+                message = "<b>💬 Full Comment Details</b>\n\n"
+                message += f"<b>Author:</b> {comment['author']}\n"
+                message += f"<b>Created:</b> {comment['created']}\n"
+                message += f"<b>Issue:</b> {issue_key}\n\n"
+                message += f"<b>Comment:</b>\n{comment['body']}\n\n"
+
+                # Add buttons to go back to comments list or reply
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Reply", callback_data=f"reply_{issue_key}|{comment_id}"
+                        ),
+                        InlineKeyboardButton(
+                            "🔙 Back to Comments", callback_data=f"comments_{issue_key}"
+                        ),
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    message, parse_mode=ParseMode.HTML, reply_markup=reply_markup
                 )
 
     elif data.startswith("view_"):
